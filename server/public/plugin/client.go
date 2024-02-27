@@ -4,6 +4,8 @@
 package plugin
 
 import (
+	"context"
+
 	"github.com/hashicorp/go-plugin"
 )
 
@@ -12,10 +14,7 @@ const (
 	BotUserKey        = InternalKeyPrefix + "botid"
 )
 
-// Starts the serving of a Mattermost plugin over net/rpc. gRPC is not yet supported.
-//
-// Call this when your plugin is ready to start.
-func ClientMain(pluginImplementation any) {
+func initializePluginImplementation(pluginImplementation any) map[string]plugin.Plugin {
 	if impl, ok := pluginImplementation.(interface {
 		SetAPI(api API)
 		SetDriver(driver Driver)
@@ -26,13 +25,39 @@ func ClientMain(pluginImplementation any) {
 		impl.SetDriver(nil)
 	}
 
-	pluginMap := map[string]plugin.Plugin{
+	return map[string]plugin.Plugin{
 		"hooks": &hooksPlugin{hooks: pluginImplementation},
 	}
+}
+
+// Starts the serving of a Mattermost plugin over net/rpc. gRPC is not yet supported.
+//
+// Call this when your plugin is ready to start.
+func ClientMain(pluginImplementation any) {
+	pluginMap := initializePluginImplementation(pluginImplementation)
 
 	plugin.Serve(&plugin.ServeConfig{
 		HandshakeConfig: handshake,
 		Plugins:         pluginMap,
+	})
+}
+
+// Starts the serving of a Mattermost plugin over net/rpc in the context of a unit test.
+//
+// ctx is used to kill the plugin from the unit tests.
+// reattachConfigCh receives the ReattachConfig to be sent back to the server.
+// closeCh, if non-nil, will be closed when the plugin exits.
+func ClientMainTesting(ctx context.Context, pluginImplementation any, reattachConfigCh chan<- *plugin.ReattachConfig, closeCh chan<- struct{}) {
+	pluginMap := initializePluginImplementation(pluginImplementation)
+
+	plugin.Serve(&plugin.ServeConfig{
+		HandshakeConfig: handshake,
+		Plugins:         pluginMap,
+		Test: &plugin.ServeTestConfig{
+			Context:          ctx,
+			ReattachConfigCh: reattachConfigCh,
+			CloseCh:          closeCh,
+		},
 	})
 }
 
